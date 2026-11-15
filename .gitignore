@@ -244,3 +244,6 @@ tests/
 .DS_Store
 
 .vscode/
+
+# folders
+exercises/
