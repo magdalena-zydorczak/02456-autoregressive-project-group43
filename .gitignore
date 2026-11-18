@@ -247,3 +247,5 @@ tests/
 
 # folders
 exercises/
+results/sequences/*.csv
+!results/sequences/mock_data.csv
