@@ -9,24 +9,51 @@ _idx_to_token = {i: t for i, t in enumerate(total_tokens)}
 
 # build encoder = LSTM 
 class RNNEncoder(nn.Module):
-    def __init__(self, vocab_size=len(total_tokens), emb_dim=64, hidden=256, num_layers=1):
+    def __init__(self, vocab_size=len(total_tokens), emb_dim=64, hidden=256, num_layers=2):
         super().__init__()
         self.config = dict(vocab_size=vocab_size, emb_dim=emb_dim,          # to store hyperparamters
                            hidden=hidden, num_layers=num_layers)
         self.hidden = hidden
         self.embed = nn.Embedding(vocab_size, emb_dim, padding_idx=PAD)     # turn tokenIDs into vectors
-        self.lstm = nn.LSTM(emb_dim, hidden, num_layers, batch_first=True)     # store sequence info as hidden state
+        self.embed_drop = nn.Dropout(0.1) # dropout on the embedding layer
+        self.lstm = nn.LSTM(emb_dim, hidden, num_layers, batch_first=True, dropout=0.2 if num_layers > 1 else 0.0)     # store sequence info as hidden state
+        self.norm = nn.LayerNorm(hidden)
+        self.out_drop = nn.Dropout(0.2)
         self.l_out = nn.Linear(hidden, vocab_size, bias=False)              # get logits from hidden state
+        
+        # Weight initialization
+        for name, p in self.lstm.named_parameters():
+            if "weight_ih" in name: # input weights
+                nn.init.kaiming_normal_(p, nonlinearity="tanh")
+            elif "weight_hh" in name: # hidden weights
+                for w in p.data.chunk(4, dim=0):    
+                    nn.init.orthogonal_(w)
+            elif "bias" in name: # biases
+                nn.init.zeros_(p)
+                if "bias_ih" in name:
+                    p.data[hidden:2 * hidden] = 1.0 
 
     # train with seeing true previous tokens
     def forward(self, x, state=None):
-        h_all, _ = self.lstm(self.embed(x), state)
-        return self.l_out(h_all), h_all
+        x = self.embed(x)                        
+        x = self.embed_drop(x)
+
+        h_all, _ = self.lstm(x, state)              
+        h_all = self.norm(h_all)
+
+        logits = self.l_out(self.out_drop(h_all))   
+        return logits, h_all
 
     # sampling per token
     def step(self, token, state=None):
-        h_all, new_state = self.lstm(self.embed(token).unsqueeze(1), state)
-        return self.l_out(h_all[:, 0]), h_all[:, 0], new_state
+        x = self.embed(token).unsqueeze(1)          
+        x = self.embed_drop(x)
+
+        h_all, new_state = self.lstm(x, state)      
+        h = self.norm(h_all[:, 0])                  
+
+        logits = self.l_out(self.out_drop(h))      
+        return logits, h, new_state
 
 # get AAs from tokenIDs
 def decode(tokens):
