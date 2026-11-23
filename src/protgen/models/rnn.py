@@ -71,14 +71,17 @@ def sample(model, n=100, max_length=129, temperature=1.0, logit_fn=None):
     token = torch.full((n,), BOS, dtype=torch.long, device=device)
     done = torch.zeros(n, dtype=torch.bool, device=device)
     state, out = None, []
+    hist = torch.zeros(n, max_length, dtype=torch.long, device=device)   # tokens so far, PAD elsewhere
+    hist[:, 0] = BOS
 
     # generate sequence token by token
     for i in range(max_length - 2):                     # no BOS and EOS tokens
         logits, _, state = model.step(token, state)     # get next token logits
         if logit_fn is not None:
-            logits = logit_fn(logits, state, i)         # optional classifier guidance
+            logits = logit_fn(logits, state, i, hist)   # optional classifier guidance
         token = torch.multinomial((logits / temperature).softmax(-1), 1).squeeze(1)     # sample one token
         token = token.masked_fill(done, PAD)            # fill with PAD once EOS is reached
+        hist[:, i + 1] = token
         done |= token == EOS
         out.append(token)
         if done.all():
